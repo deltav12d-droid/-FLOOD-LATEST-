@@ -105,7 +105,7 @@
         .then(data => {
           const altCoords = data.features[0].geometry.coordinates.map(p => [p[1], p[0]]);
           altRouteLine = L.polyline(altCoords, { color: 'green', weight: 5 })
-            .bindPopup("Alternate Route").addTo(map);
+            .bindPopup("Alternate Safe Route ").addTo(map);
         })
         .catch(err => alert("Error fetching alternate route: " + err));
       })
