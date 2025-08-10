@@ -1,175 +1,540 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-  <title>Flood Alert - Trivandrum</title>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-  <style>
-    body, html {
-      margin: 0;
-      padding: 0;
-      font-family: Arial, sans-serif;
-      background: #f0f4f7;
-    }
-    #controls {
-      position: absolute;
-      z-index: 1000;
-      background: #ffffffee;
-      padding: 20px;
-      border-radius: 12px;
-      top: 10px;
-      left: 10px;
-      box-shadow: 0 0 12px rgba(0,0,0,0.2);
-      max-width: 300px;
-    }
-    #map {
-      width: 100vw;
-      height: 100vh;
-    }
-    select, button, input[type="text"] {
-      width: 100%;
-      padding: 10px;
-      margin: 8px 0;
-      border-radius: 8px;
-      border: 1px solid #ccc;
-    }
-    #info {
-      margin-top: 12px;
-      font-size: 14px;
-    }
-    #weather {
-      margin-top: 12px;
-      font-size: 14px;
-    }
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Flood Alert — Trivandrum (Road-avoidance)</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<style>
+  :root{
+    --bg:#0f1720; --panel:#0b1220; --text:#e6eef6; --muted:#9fb0c8;
+    --accent:#16a34a; --danger:#ef4444; --safe:#28c76f; --alt:#a3e635;
+  }
+  body.light{ --bg:#f6fbff; --panel:#fff; --text:#0b1220; --muted:#475569; }
+  *{box-sizing:border-box}
+  html,body,#map{height:100%;margin:0;padding:0}
+  body{font-family:Inter,Segoe UI,Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
+
+  /* main left panel */
+  #leftPanel{ position:absolute; left:12px; top:12px; z-index:1500; width:360px; background:var(--panel); padding:12px; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,0.45); }
+  #leftPanel h3{ margin:0 0 8px 0; font-size:16px }
+  .input{ width:100%; padding:10px; margin-bottom:8px; border-radius:8px; border:0; background:#071025; color:var(--text) }
+  .btn{ width:100%; padding:10px; border-radius:8px; border:0; cursor:pointer; box-shadow:0 6px 18px rgba(0,0,0,0.35); }
+  #findBtn{ background: linear-gradient(90deg,#10b981,#064e3b); font-weight:700; color:#fff }
+  .small{ font-size:12px; color:var(--muted) }
+
+  /* suggestions under inputs */
+  .suggestions{ position:absolute; z-index:2100; background:var(--panel); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.45); overflow:auto; max-height:220px; color:var(--text) }
+  .suggestions div{ padding:8px; border-bottom:1px solid rgba(255,255,255,0.03); cursor:pointer }
+  .suggestions div:hover{ background: rgba(255,255,255,0.02) }
+
+  /* map-top controls */
+  #topControls{ position:absolute; right:12px; top:12px; z-index:1550; display:flex; flex-direction:column; gap:8px; align-items:flex-end }
+  .smallBtn{ padding:8px 10px; border-radius:8px; border:0; background:#071025; color:var(--text); cursor:pointer; box-shadow:0 6px 18px rgba(0,0,0,0.35) }
+
+  /* legend and weather */
+  #legend{ position:absolute; left:12px; bottom:12px; z-index:1200; background:var(--panel); padding:10px; border-radius:10px; color:var(--muted); font-size:13px }
+  #weatherBadge{ background:var(--panel); padding:8px; border-radius:8px; color:var(--muted) }
+
+  /* alert banner */
+  #alertBanner{ position:absolute; left:50%; transform:translateX(-50%); top:12px; z-index:1600; min-width:320px; padding:12px; border-radius:10px; display:none; font-weight:700; color:white; cursor:pointer; box-shadow:0 12px 40px rgba(0,0,0,0.4) }
+
+  /* modals */
+  .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:1700; background:rgba(0,0,0,0.45) }
+  .panel{ width:560px; max-height:82vh; overflow:auto; background:var(--panel); padding:14px; border-radius:12px; color:var(--text) }
+  textarea.input{ height:120px; }
+
+  /* map Finish button (top while picking) */
+  #mapFinishBtn{ position:absolute; right:16px; top:70px; z-index:2000; display:none; padding:10px 14px; border-radius:10px; background:var(--accent); color:#04311a; font-weight:700; cursor:pointer; box-shadow:0 12px 30px rgba(2,6,23,0.6) }
+
+  /* thank you animation */
+  #thankYou{ position:fixed; left:50%; top:40%; transform:translate(-50%,-50%) scale(0.8); z-index:3000; display:none; padding:20px 26px; border-radius:12px; background:linear-gradient(90deg,#10b981,#16a34a); color:#023020; font-weight:800; box-shadow:0 20px 60px rgba(2,6,23,0.5); animation:pop 800ms forwards; }
+  @keyframes pop{ 0%{ opacity:0; transform:translate(-50%,-50%) scale(0.7); } 60%{ opacity:1; transform:translate(-50%,-50%) scale(1.05); } 100%{ opacity:1; transform:translate(-50%,-50%) scale(1); } }
+
+  /* report-help box content */
+  .report-steps { display:flex; flex-direction:column; gap:8px; font-size:14px; color:var(--text); }
+  .report-actions { display:flex; gap:8px; margin-top:10px; }
+
+  @media (max-width:720px){ #leftPanel{ width:92%; left:4% } .panel{ width:90% } }
+</style>
 </head>
 <body>
-<div id="controls">
-  <label>Starting Point:</label>
-  <select id="start">
-    <option value="current">Current Location</option>
-    <option value="8.3986,77.0806">Neyyattinkara</option>
-    <option value="8.5241,76.9366">Trivandrum Central</option>
-    <option value="8.5577,76.8812">Technopark</option>
-    <option value="8.5729,76.9366">Kazhakkoottam</option>
-    <option value="8.5074,76.9795">Kovalam</option>
-    <option value="8.4986,76.9528">Pettah</option>
-    <option value="8.4861,76.9496">Shangumugham</option>
-  </select>
+  <div id="alertBanner"></div>
 
-  <label>Destination:</label>
-  <select id="end">
-    <option value="8.4826,76.9203">Trivandrum Airport</option>
-    <option value="8.5241,76.9366">Trivandrum Central</option>
-    <option value="8.5577,76.8812">Technopark</option>
-    <option value="8.5729,76.9366">Kazhakkoottam</option>
-    <option value="8.5074,76.9795">Kovalam</option>
-    <option value="8.4986,76.9528">Pettah</option>
-    <option value="8.4861,76.9496">Shangumugham</option>
-  </select>
+  <div id="leftPanel">
+    <h3>Flood Alert — Trivandrum</h3>
 
-  <button onclick="calculateRoute()">Get Route</button>
-  <div id="info"></div>
-  <div id="weather"></div>
-</div>
-<div id="map"></div>
+    <label class="small">Start (type or "Current location")</label>
+    <div style="display:flex;gap:8px">
+      <input id="startInput" class="input" placeholder="Type start or 'Current location'">
+      <button id="useCurrentBtn" class="smallBtn">Current</button>
+    </div>
+    <div id="startSuggest" class="suggestions" style="display:none"></div>
+
+    <label class="small">Destination (Trivandrum)</label>
+    <input id="endInput" class="input" placeholder="Type destination">
+    <div id="endSuggest" class="suggestions" style="display:none"></div>
+
+    <div style="display:flex;gap:8px">
+      <button id="findBtn" class="btn">Find fast & safe route</button>
+      <button id="takeSafeBtn" class="btn" style="display:none;background:var(--safe);color:#04311a">Take Safe Route</button>
+    </div>
+
+    <div id="routeInfo" class="small"></div>
+
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button id="reportBtn" class="smallBtn" style="background:var(--danger)">Report Flood Road</button>
+      <button id="openSettingsBtn" class="smallBtn">Settings</button>
+    </div>
+  </div>
+
+  <div id="topControls">
+    <div id="weatherBadge" class="small" style="display:none"></div>
+    <button id="adminBell" class="smallBtn" style="display:none; position:relative;">
+      🔔 <span id="bellCount" style="background:#ef4444;color:white;border-radius:10px;padding:2px 6px;margin-left:6px;font-weight:700;display:inline-block;"></span>
+    </button>
+  </div>
+
+  <div id="legend">
+    <div style="margin-bottom:6px"><strong>Legend</strong></div>
+    <div style="display:flex;gap:8px;align-items:center"><div style="width:18px;height:10px;background:var(--danger)"></div><div class="small">Flooded road</div></div>
+    <div style="display:flex;gap:8px;align-items:center"><div style="width:18px;height:10px;background:var(--safe)"></div><div class="small">Safe route</div></div>
+  </div>
+
+  <div id="map"></div>
+
+  <button id="mapFinishBtn">Finish Report</button>
+
+  <!-- thank you -->
+  <div id="thankYou">✅ Thank you! Report submitted.</div>
+
+  <!-- Report modal (instructions + pick on map) -->
+  <div id="reportModal" class="modal">
+    <div class="panel">
+      <h3 style="margin-top:0">Report Flooded Road</h3>
+      <div class="report-steps">
+        <div>We appreciate your help. Reporting takes 2 steps:</div>
+        <ol>
+          <li>Tap <b>Pick on Map</b> to select the flooded street directly on the map.</li>
+          <li>Draw the flooded stretch by tapping locations along the road (2 or more points). When done, tap <b>Finish Report</b>.</li>
+        </ol>
+        <label class="small">Optional notes (describe severity, depth, time)</label>
+        <textarea id="reportNotes" class="input" placeholder="e.g. Water approx 0.5m deep near XYZ, vehicle stuck"></textarea>
+        <div class="report-actions">
+          <button id="pickRoadBtn" class="smallBtn">Pick on Map</button>
+          <button id="closeReportBtn" class="smallBtn" style="background:#b91c1c">Cancel</button>
+        </div>
+        <div class="small" style="color:var(--muted)">Your report will be sent to admin for review. Admin approval is required to publish the flooded road.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings & Admin modal -->
+  <div id="settingsModal" class="modal">
+    <div class="panel">
+      <h3 style="margin-top:0">Settings & Admin</h3>
+
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button id="toggleThemeBtn" class="smallBtn">Toggle Light/Dark</button>
+        <button id="resetViewBtn" class="smallBtn">Reset View</button>
+      </div>
+
+      <hr/>
+
+      <h4>Admin Login</h4>
+      <input id="adminUser" class="input" placeholder="Admin id (default: helix)">
+      <input id="adminPass" class="input" placeholder="Password" type="password">
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button id="adminLoginBtn" class="smallBtn" style="background:var(--accent)">Login</button>
+        <button id="adminChangePassBtn" class="smallBtn">Change Password</button>
+        <button id="closeSettingsBtn" class="smallBtn" style="background:#b91c1c">Close</button>
+      </div>
+
+      <div id="adminTools" style="display:none;margin-top:12px">
+        <h4>Pending Reports</h4>
+        <div id="reportsList" style="max-height:160px;overflow:auto"></div>
+
+        <hr/>
+        <h4>Draw Flooded Road (Admin)</h4>
+        <p class="small">Start Draw → click map points → Finish & Save</p>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <button id="startDrawBtn" class="smallBtn">Start Draw</button>
+          <button id="finishDrawBtn" class="smallBtn" style="background:var(--accent)">Finish & Save</button>
+          <button id="cancelDrawBtn" class="smallBtn" style="background:#b91c1c">Cancel</button>
+        </div>
+
+        <hr/>
+        <h4>Export / Import Flooded Roads</h4>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <button id="exportBtn" class="smallBtn">Export</button>
+          <button id="importBtn" class="smallBtn">Import</button>
+        </div>
+        <textarea id="importArea" class="input" placeholder='Paste JSON array of roads: [{"coords":[[lat,lng],[lat,lng],...]}, ...]'></textarea>
+
+        <hr/>
+        <div id="roadsList" style="max-height:160px;overflow:auto"></div>
+      </div>
+    </div>
+  </div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.polylinedecorator/1.7.0/leaflet.polylineDecorator.min.js"></script>
+
 <script>
-  const apiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImViOTBkMjI4ZGUyNDRkMzg5MGU1ZWVkNjU0MDU0Y2MzIiwiaCI6Im11cm11cjY0In0=";
-  const weatherApiKey = "b3bbd7748a865056c51ac3458d4851bc";
+/* ========== CONFIG ========== */
+const GRAPH_HOPPER_KEY = '363c2df2-baa1-4e35-b1b9-9ceb7fc3eed1';
+const ORS_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImViOTBkMjI4ZGUyNDRkMzg5MGU1ZWVkNjU0MDU0Y2MzIiwiaCI6Im11cm11cjY0In0=';
+const OWM_KEY = 'ce70bf8bdb2bbf3ad192ee196735d6cf';
+const VIEWBOX = '76.7,8.7,77.2,8.3';
 
-  const trivandrumBounds = L.latLngBounds([8.3, 76.7], [8.7, 77.2]);
-  const map = L.map('map', {
-    maxBounds: trivandrumBounds,
-    maxBoundsViscosity: 1.0
-  }).setView([8.52, 76.94], 12);
+/* ========== MAP INIT ========== */
+const bounds = L.latLngBounds([8.3,76.7],[8.7,77.2]);
+const map = L.map('map',{minZoom:11,maxZoom:18,maxBounds:bounds}).setView([8.5241,76.9366],13);
+const baseTiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+const darkTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:19});
+if(OWM_KEY) L.tileLayer(`https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${OWM_KEY}`,{opacity:0.6}).addTo(map);
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: 'Map data © OpenStreetMap contributors'
-  }).addTo(map);
+/* ========== STORAGE (IndexedDB) ========== */
+function openDB(name='floodDB', version=1){
+  return new Promise((resolve,reject)=>{
+    const rq = indexedDB.open(name, version);
+    rq.onupgradeneeded = (ev)=>{
+      const db = ev.target.result;
+      if(!db.objectStoreNames.contains('roads')) db.createObjectStore('roads',{keyPath:'id'});
+      if(!db.objectStoreNames.contains('reports')) db.createObjectStore('reports',{keyPath:'id'});
+      if(!db.objectStoreNames.contains('meta')) db.createObjectStore('meta',{keyPath:'k'});
+    };
+    rq.onsuccess = ()=> resolve(rq.result);
+    rq.onerror = ()=> reject(rq.error);
+  });
+}
+async function put(store, obj){ const db = await openDB(); return new Promise((res,rej)=>{ const tx = db.transaction(store,'readwrite'); const os = tx.objectStore(store); const r = os.put(obj); r.onsuccess = ()=> res(r.result); r.onerror = ()=> rej(r.error); }); }
+async function add(store, obj){ const db = await openDB(); return new Promise((res,rej)=>{ const tx = db.transaction(store,'readwrite'); const os = tx.objectStore(store); const r = os.add(obj); r.onsuccess = ()=> res(r.result); r.onerror = ()=> rej(r.error); }); }
+async function del(store, key){ const db = await openDB(); return new Promise((res,rej)=>{ const tx = db.transaction(store,'readwrite'); const os = tx.objectStore(store); const r = os.delete(key); r.onsuccess = ()=> res(); r.onerror = ()=> rej(r.error); }); }
+async function all(store){ const db = await openDB(); return new Promise((res,rej)=>{ const tx = db.transaction(store,'readonly'); const os = tx.objectStore(store); const r = os.getAll(); r.onsuccess = ()=> res(r.result); r.onerror = ()=> rej(r.error); }); }
+async function getMeta(k){ const db = await openDB(); return new Promise((res,rej)=>{ const tx = db.transaction('meta','readonly'); const os = tx.objectStore('meta'); const r = os.get(k); r.onsuccess = ()=> res(r.result ? r.result.v : null); r.onerror = ()=> rej(r.error); }); }
+async function setMeta(k,v){ return put('meta', { k, v }); }
 
-  let routeLine, floodLine, altRouteLine, userMarker;
-  let userLatLng = null;
+/* ========== UTIL ========== */
+function genId(){ return 'id'+Math.random().toString(36).slice(2,9); }
+function showBanner(text, onclick){ const b = document.getElementById('alertBanner'); b.style.display='block'; b.style.background='linear-gradient(90deg,#ef4444,#f43f5e)'; b.innerText = text; if(onclick){ b.style.cursor='pointer'; b.onclick = ()=>{ onclick(); b.style.display='none'; } } setTimeout(()=>{ try{ b.style.display='none'; }catch(e){} },9000); }
+function hideBanner(){ const b=document.getElementById('alertBanner'); b.style.display='none'; b.onclick=null; }
 
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(pos => {
-      const lat = pos.coords.latitude;
-      const lng = pos.coords.longitude;
-      userLatLng = [lat, lng];
-      userMarker = L.marker(userLatLng).addTo(map).bindPopup("You are here").openPopup();
-    });
+/* ========== SUGGESTIONS (Nominatim bounded) ========== */
+async function nominatim(q){
+  try{
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=6&viewbox=${VIEWBOX}&bounded=1`;
+    const r = await fetch(url, { headers:{ 'Accept-Language':'en', 'User-Agent':'FloodMap/1.0 (+your-email@example.com)' }});
+    if(!r.ok) return [];
+    return await r.json();
+  }catch(e){ console.warn(e); return []; }
+}
+function positionSuggest(inputEl, boxEl){
+  const r = inputEl.getBoundingClientRect();
+  boxEl.style.left = (r.left + window.scrollX) + 'px';
+  boxEl.style.top = (r.bottom + window.scrollY + 6) + 'px';
+  boxEl.style.width = r.width + 'px';
+}
+function attachSuggest(inputEl, boxEl){
+  let t=null; inputEl.addEventListener('input', ()=>{ clearTimeout(t); const q=inputEl.value.trim(); if(!q){ boxEl.style.display='none'; boxEl.innerHTML=''; return; } t=setTimeout(async ()=>{ const res=await nominatim(q); boxEl.innerHTML=''; if(!res || res.length===0){ const d=document.createElement('div'); d.innerText='No results (Trivandrum)'; d.style.color='var(--muted)'; boxEl.appendChild(d); } else { res.forEach(it=>{ const div=document.createElement('div'); div.innerText=it.display_name; div.onclick=()=>{ inputEl.value=it.display_name; inputEl._latlng=[parseFloat(it.lat), parseFloat(it.lon)]; boxEl.style.display='none'; boxEl.innerHTML=''; }; boxEl.appendChild(div); }); } positionSuggest(inputEl, boxEl); boxEl.style.display='block'; },300); });
+  inputEl.addEventListener('blur', ()=>{ setTimeout(()=>{ boxEl.style.display='none'; },220); });
+  window.addEventListener('resize', ()=>{ if(boxEl.style.display==='block') positionSuggest(inputEl, boxEl); });
+  window.addEventListener('scroll', ()=>{ if(boxEl.style.display==='block') positionSuggest(inputEl, boxEl); });
+}
+attachSuggest(document.getElementById('startInput'), document.getElementById('startSuggest'));
+attachSuggest(document.getElementById('endInput'), document.getElementById('endSuggest'));
+
+/* ========== CURRENT LOCATION & WEATHER ========== */
+let userPos=null, userMarker=null;
+if(navigator.geolocation){
+  navigator.geolocation.watchPosition(p=>{
+    userPos=[p.coords.latitude,p.coords.longitude];
+    if(!userMarker) userMarker = L.circleMarker(userPos,{radius:8,fillColor:'#06b6d4',color:'#fff',weight:2}).addTo(map).bindPopup('You are here');
+    else userMarker.setLatLng(userPos);
+    // weather
+    fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${userPos[0]}&lon=${userPos[1]}&appid=${OWM_KEY}&units=metric`)
+      .then(r=>r.json()).then(w=>{ const badge=document.getElementById('weatherBadge'); badge.style.display='block'; const rain=(w.rain && w.rain['1h'])?` · Rain(1h): ${w.rain['1h']}mm` : ''; badge.innerHTML=`<b>Weather</b><br>${w.main.temp}°C · Hum ${w.main.humidity}%${rain}`; }).catch(()=>{});
+    // Also set start input to current location convenience if user clicked current earlier
+  }, e=>{ console.warn('geo err', e); }, { enableHighAccuracy:true, maximumAge:5000 });
+}
+
+/* ========== ROUTING (GH + ORS fallback + ORS avoidance using polygons) ========== */
+async function ghRoute(points){
+  const base = 'https://graphhopper.com/api/1/route';
+  const p = new URLSearchParams();
+  points.forEach(pt=> p.append('point', `${pt[0]},${pt[1]}`));
+  p.set('vehicle','car'); p.set('points_encoded','false'); p.set('instructions','false'); p.set('key', GRAPH_HOPPER_KEY);
+  const url = base + '?' + p.toString();
+  const r = await fetch(url);
+  if(!r.ok) throw new Error('GH:'+r.status);
+  return r.json();
+}
+async function orsRoute(points, avoidMultipolygon=null){
+  const base = 'https://api.openrouteservice.org/v2/directions/driving-car/geojson';
+  const coords = points.map(pt=>[pt[1],pt[0]]); // lon,lat
+  const body = { coordinates: coords };
+  if(avoidMultipolygon) body.avoid_polygons = avoidMultipolygon;
+  const r = await fetch(base, { method:'POST', headers:{ 'Authorization': ORS_KEY, 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+  if(!r.ok) { const txt = await r.text(); throw new Error('ORS:'+r.status+' '+txt); }
+  return r.json();
+}
+
+/* ========== FLOODED ROADS STORAGE & RENDER ========== */
+let roadsCache = [], roadLayers = {};
+async function loadRoads(){ roadsCache = await all('roads') || []; renderRoads(); renderRoadsList(); }
+function renderRoads(){
+  Object.values(roadLayers).forEach(l=>{ try{ map.removeLayer(l);}catch(e){} });
+  roadLayers = {};
+  roadsCache.forEach(r=>{
+    const poly = L.polyline(r.coords, { color: 'var(--danger)', weight:5, dashArray:'8,8' }).addTo(map);
+    poly.bindPopup('Flooded road (verified)');
+    roadLayers[r.id]=poly;
+  });
+}
+function renderRoadsList(){
+  const c = document.getElementById('roadsList'); if(!c) return;
+  c.innerHTML='';
+  roadsCache.forEach(r=>{
+    const div=document.createElement('div'); div.style.padding='8px'; div.style.borderBottom='1px solid rgba(255,255,255,0.03)';
+    div.innerHTML = `<b>Road</b> ${r.coords.length} pts`;
+    const rm=document.createElement('button'); rm.className='smallBtn'; rm.style.float='right'; rm.style.background='#b91c1c'; rm.innerText='Remove';
+    rm.onclick = async ()=>{ await del('roads', r.id); await loadRoads(); alert('Removed'); };
+    div.appendChild(rm); c.appendChild(div);
+  });
+}
+
+/* ========== HELPER GEOMETRY & utils ========== */
+function genPolylineLayer(coords, style){ return L.polyline(coords, style).addTo(map); }
+
+/* ========== REPORT FLOW implementation ========== */
+let reportPickMode=false, reportDrawPts=[], reportPreview=null;
+const pickBtn = document.getElementById('pickRoadBtn');
+const reportModal = document.getElementById('reportModal');
+const mapFinishBtn = document.getElementById('mapFinishBtn');
+const thankYou = document.getElementById('thankYou');
+
+pickBtn.addEventListener('click', ()=> {
+  // start pick mode
+  reportModal.style.display='none';
+  reportPickMode = true;
+  reportDrawPts = [];
+  if(reportPreview) try{ map.removeLayer(reportPreview);}catch(e){}
+  alert('Pick mode: Tap on the map to draw the flooded road (2+ points). Use Finish Report button when done. You can cancel by opening Settings → Cancel Draw.');
+  mapFinishBtn.style.display='inline-block';
+  mapFinishBtn.innerText = 'Finish Report';
+  // also show admin bell maybe update counts
+});
+
+// map click handler for picking
+map.on('click', function(e){
+  if(reportPickMode){
+    reportDrawPts.push([e.latlng.lat, e.latlng.lng]);
+    if(reportPreview) try{ map.removeLayer(reportPreview);}catch(e){}
+    reportPreview = L.polyline(reportDrawPts, { color:'#f97316', weight:5, dashArray:'6,6' }).addTo(map);
   }
+  if(adminDrawing){ adminDrawPts.push([e.latlng.lat, e.latlng.lng]); if(adminDrawPreview) try{ map.removeLayer(adminDrawPreview);}catch(e){} adminDrawPreview = L.polyline(adminDrawPts, { color:'#ef4444', weight:4, dashArray:'8,8' }).addTo(map); }
+});
 
-  function calculateRoute() {
-    const info = document.getElementById("info");
-    const weatherBox = document.getElementById("weather");
-    info.innerHTML = "Loading route...";
-    if (routeLine) map.removeLayer(routeLine);
-    if (floodLine) map.removeLayer(floodLine);
-    if (altRouteLine) map.removeLayer(altRouteLine);
-
-    const startVal = document.getElementById("start").value;
-    const end = document.getElementById("end").value.split(',').map(Number);
-    const start = startVal === "current" && userLatLng ? userLatLng : startVal.split(',').map(Number);
-
-    if (!start || !end) return alert("Invalid start or end point.");
-
-    fetch("https://api.openrouteservice.org/v2/directions/driving-car/geojson", {
-      method: "POST",
-      headers: {
-        'Authorization': apiKey,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ coordinates: [[start[1], start[0]], [end[1], end[0]]] })
-    })
-    .then(res => res.json())
-    .then(data => {
-      const coords = data.features[0].geometry.coordinates.map(p => [p[1], p[0]]);
-      routeLine = L.polyline(coords, { color: 'blue', weight: 5 }).addTo(map).bindPopup("Original Route");
-
-      const summary = data.features[0].properties.summary;
-      const speed = (summary.distance / summary.duration * 3.6).toFixed(2);
-      info.innerHTML = `<strong>Distance:</strong> ${(summary.distance/1000).toFixed(2)} km<br>
-                        <strong>Duration:</strong> ${(summary.duration/60).toFixed(1)} mins<br>
-                        <strong>Avg Speed:</strong> ${speed} km/h`;
-
-      const mid = Math.floor(coords.length / 2);
-      const floodSegment = coords.slice(mid - 2, mid + 2);
-      floodLine = L.polyline(floodSegment, { color: 'red', weight: 6, dashArray: '5, 10' }).addTo(map).bindPopup("Flooded Area");
-
-      fetch("https://api.openrouteservice.org/v2/directions/driving-car/geojson", {
-        method: "POST",
-        headers: {
-          'Authorization': apiKey,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          coordinates: [[start[1], start[0]], [end[1], end[0]]],
-          avoid_polygons: {
-            type: "Polygon",
-            coordinates: [[
-              ...floodSegment.map(c => [c[1], c[0]]),
-              [floodSegment[0][1], floodSegment[0][0]]
-            ]]
-          }
-        })
-      })
-      .then(res => res.json())
-      .then(data => {
-        const altCoords = data.features[0].geometry.coordinates.map(p => [p[1], p[0]]);
-        altRouteLine = L.polyline(altCoords, { color: 'green', weight: 5, dashArray: '10, 6' }).addTo(map).bindPopup("Alternate Route").openPopup();
-      });
-
-      fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${start[0]}&lon=${start[1]}&appid=${weatherApiKey}&units=metric`)
-        .then(res => res.json())
-        .then(data => {
-          weatherBox.innerHTML = `<strong>Weather:</strong> ${data.weather[0].description}<br>
-                                  <strong>Temperature:</strong> ${data.main.temp}°C`;
-        });
-    });
+/* Finish report */
+mapFinishBtn.addEventListener('click', async ()=>{
+  if(!reportPickMode || reportDrawPts.length < 2){
+    alert('Please pick at least two points on the map to mark the flooded stretch.');
+    return;
   }
+  // collect note
+  const notes = document.getElementById('reportNotes').value.trim();
+  const rep = { id: genId(), type:'road', coords: reportDrawPts.slice(), text: notes || 'User reported flood', time: Date.now(), status:'pending' };
+  await add('reports', rep);
+  // also mirror in localStorage for quick retrieval (optional)
+  try{
+    const pending = JSON.parse(localStorage.getItem('pending_reports') || '[]');
+    pending.push(rep);
+    localStorage.setItem('pending_reports', JSON.stringify(pending));
+  }catch(e){}
+
+  // reset UI
+  reportPickMode=false;
+  if(reportPreview) try{ map.removeLayer(reportPreview);}catch(e){}
+  reportPreview=null;
+  reportDrawPts=[];
+  mapFinishBtn.style.display='none';
+  document.getElementById('reportNotes').value='';
+
+  // small thank-you animation
+  thankYou.style.display='block';
+  setTimeout(()=>{ thankYou.style.display='none'; }, 1800);
+
+  // notify admin bell
+  updateBell();
+
+  // optional toast
+  console.log('Report submitted', rep);
+});
+
+/* helper to clear pick */
+function cancelPickPreview(){
+  reportPickMode=false;
+  if(reportPreview) try{ map.removeLayer(reportPreview);}catch(e){}
+  reportPreview=null; reportDrawPts=[]; mapFinishBtn.style.display='none';
+}
+
+/* ========== ADMIN (client-side secure) ========== */
+const DEFAULT_ADMIN_USER = 'helix';
+const DEFAULT_ADMIN_PASS = 'helix';
+async function sha256Hex(str){
+  const enc = new TextEncoder().encode(str);
+  const hash = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function ensureAdminHash(){
+  let storedHash = await getMeta('adminHash');
+  if(!storedHash){
+    const hashed = await sha256Hex(DEFAULT_ADMIN_PASS + '::SALTv1');
+    await setMeta('adminHash', hashed);
+    await setMeta('adminUser', DEFAULT_ADMIN_USER);
+  }
+}
+async function checkAdminLogin(user, pass){
+  const storedHash = await getMeta('adminHash');
+  const storedUser = await getMeta('adminUser') || DEFAULT_ADMIN_USER;
+  if(!storedHash) return false;
+  const h = await sha256Hex(pass + '::SALTv1');
+  return (user === storedUser && h === storedHash);
+}
+async function changeAdminPassword(newPass){
+  const h = await sha256Hex(newPass + '::SALTv1'); await setMeta('adminHash', h);
+}
+
+/* admin UI wiring */
+document.getElementById('adminLoginBtn').addEventListener('click', async ()=>{
+  const u = (document.getElementById('adminUser').value.trim() || DEFAULT_ADMIN_USER);
+  const p = document.getElementById('adminPass').value;
+  const ok = await checkAdminLogin(u,p);
+  if(ok){
+    document.getElementById('adminTools').style.display='block';
+    await refreshAdminLists();
+    alert('Admin logged in');
+    document.getElementById('settingsModal').style.display='none';
+  } else alert('Wrong credentials');
+});
+document.getElementById('adminChangePassBtn').addEventListener('click', async ()=>{
+  const cur = prompt('Enter current admin password:');
+  if(!cur) return;
+  const ok = await checkAdminLogin(DEFAULT_ADMIN_USER, cur);
+  if(!ok){ alert('Current password wrong'); return; }
+  const nw = prompt('Enter new strong password:');
+  if(!nw || nw.length < 4){ alert('Password too short (min 4)'); return; }
+  await changeAdminPassword(nw); alert('Admin password changed');
+});
+
+/* ========== ADMIN: refresh pending reports list ========== */
+async function refreshAdminLists(){
+  const reps = await all('reports') || [];
+  const pending = reps.filter(r => !r.status || r.status === 'pending');
+  const list = document.getElementById('reportsList');
+  list.innerHTML='';
+  if(pending.length===0) list.innerHTML = '<div class="small">No pending reports</div>';
+  pending.forEach(r=>{
+    const div = document.createElement('div'); div.style.padding='8px'; div.style.borderBottom='1px solid rgba(255,255,255,0.03)';
+    div.innerHTML = `<b>Report</b> <small style="color:var(--muted)">(${new Date(r.time).toLocaleString()})</small><div style="margin-top:6px">${r.text ? `<i>${r.text}</i>` : ''}</div>`;
+    const preview = document.createElement('button'); preview.className='smallBtn'; preview.style.marginLeft='8px'; preview.innerText='Preview';
+    preview.onclick = ()=> {
+      if(window._preview) try{ map.removeLayer(window._preview);}catch(e){} window._preview = L.polyline(r.coords, { color:'#f97316', weight:6, dashArray:'6,6' }).addTo(map);
+      map.fitBounds(window._preview.getBounds(), { padding:[60,60] });
+    };
+    const approve = document.createElement('button'); approve.className='smallBtn'; approve.style.marginLeft='8px'; approve.style.background='var(--accent)'; approve.innerText='Approve';
+    approve.onclick = async ()=> {
+      await add('roads', { id: genId(), coords: r.coords });
+      r.status = 'approved';
+      await put('reports', r);
+      await loadRoads();
+      await refreshAdminLists();
+      updateBell();
+      alert('Approved and saved (visible to everyone)');
+    };
+    const reject = document.createElement('button'); reject.className='smallBtn'; reject.style.marginLeft='8px'; reject.style.background='#b91c1c'; reject.innerText='Reject';
+    reject.onclick = async ()=> {
+      r.status = 'rejected';
+      await put('reports', r);
+      await refreshAdminLists();
+      updateBell();
+      alert('Report rejected');
+    };
+    div.appendChild(preview); div.appendChild(approve); div.appendChild(reject);
+    list.appendChild(div);
+  });
+}
+
+/* update admin bell count */
+async function updateBell(){
+  const reps = await all('reports') || [];
+  const pending = reps.filter(r => !r.status || r.status === 'pending').length;
+  const bell = document.getElementById('adminBell');
+  const count = document.getElementById('bellCount');
+  if(pending > 0){
+    bell.style.display='inline-block';
+    count.innerText = pending;
+    // if admin tools open, refresh
+    if(document.getElementById('adminTools').style.display==='block') refreshAdminLists();
+  } else {
+    bell.style.display='none';
+  }
+}
+/* clicking bell opens settings (admin) quickly */
+document.getElementById('adminBell').addEventListener('click', ()=>{ document.getElementById('settingsModal').style.display='flex'; });
+
+/* ========== ADMIN draw roads ========== */
+let adminDrawing=false, adminDrawPts=[], adminDrawPreview=null;
+document.getElementById('startDrawBtn').addEventListener('click', ()=>{ adminDrawing=true; adminDrawPts=[]; alert('Admin draw mode: click on map to add points; then Finish & Save.'); });
+document.getElementById('finishDrawBtn').addEventListener('click', async ()=>{ if(adminDrawPts.length<2){ alert('Need >=2 points'); return; } await add('roads', { id: genId(), coords: adminDrawPts.slice() }); adminDrawing=false; if(adminDrawPreview) try{ map.removeLayer(adminDrawPreview);}catch(e){} adminDrawPreview=null; await loadRoads(); alert('Saved flooded road'); });
+document.getElementById('cancelDrawBtn').addEventListener('click', ()=>{ adminDrawing=false; adminDrawPts=[]; if(adminDrawPreview) try{ map.removeLayer(adminDrawPreview);}catch(e){} adminDrawPreview=null; alert('Canceled'); });
+
+/* ========== EXPORT/IMPORT ========== */
+document.getElementById('exportBtn').addEventListener('click', async ()=>{ const roads = await all('roads'); document.getElementById('importArea').value = JSON.stringify(roads, null, 2); alert('Exported JSON below'); });
+document.getElementById('importBtn').addEventListener('click', async ()=>{ const txt = document.getElementById('importArea').value.trim(); if(!txt) return alert('Paste JSON'); try{ const arr = JSON.parse(txt); if(!Array.isArray(arr)) return alert('Invalid JSON'); for(const r of arr){ if(r.coords) await add('roads', { id: genId(), coords:r.coords }); } await loadRoads(); alert('Imported'); }catch(e){ alert('Import error: '+e.message); } });
+
+/* ========== HELPERS: resolvePlace & event wiring ========== */
+async function resolvePlace(text, inputEl){
+  if(!text) return null;
+  if(text.toLowerCase().includes('current') && userPos) return userPos;
+  if(inputEl && inputEl._latlng) return inputEl._latlng;
+  const m = text.match(/(-?\d+(\.\d+)?)\s*[,;]\s*(-?\d+(\.\d+)?)/);
+  if(m) return [parseFloat(m[1]), parseFloat(m[3])];
+  const res = await nominatim(text);
+  if(res && res.length>0) return [parseFloat(res[0].lat), parseFloat(res[0].lon)];
+  return null;
+}
+
+/* event wiring */
+document.getElementById('useCurrentBtn').addEventListener('click', ()=>{ if(userPos){ document.getElementById('startInput').value='Current location'; document.getElementById('startInput')._latlng = userPos; } else alert('Allow location permission'); });
+document.getElementById('findBtn').addEventListener('click', calculateAndShow);
+document.getElementById('openSettingsBtn').addEventListener('click', ()=>{ document.getElementById('settingsModal').style.display='flex'; });
+document.getElementById('closeSettingsBtn').addEventListener('click', ()=>{ document.getElementById('settingsModal').style.display='none'; });
+document.getElementById('toggleThemeBtn').addEventListener('click', ()=>{ document.body.classList.toggle('light'); if(document.body.classList.contains('light')){ if(map.hasLayer(darkTiles)) map.removeLayer(darkTiles); baseTiles.addTo(map); } else { if(map.hasLayer(baseTiles)) map.removeLayer(baseTiles); darkTiles.addTo(map); } });
+
+/* init seeds & startup */
+async function seedDemoRoadsOnce(){
+  const roads = await all('roads');
+  if(roads && roads.length>0) return;
+  const demo = [
+    { id: genId(), coords:[[8.5280,76.9350],[8.5285,76.9370]] },
+    { id: genId(), coords:[[8.5150,76.9550],[8.5160,76.9560]] }
+  ];
+  for(const d of demo) await add('roads', d);
+}
+
+(async function init(){
+  await openDB();
+  await ensureAdminHash();
+  await seedDemoRoadsOnce();
+  await loadRoads();
+  await refreshAdminLists();
+  await updateBell();
+  setTimeout(()=>{ positionSuggest(document.getElementById('startInput'), document.getElementById('startSuggest')); positionSuggest(document.getElementById('endInput'), document.getElementById('endSuggest')); }, 300);
+})();
+
+/* --- end of script --- */
+
 </script>
 </body>
 </html>
