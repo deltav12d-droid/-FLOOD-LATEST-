@@ -105,3 +105,203 @@
 
 </body>
 </html>
+<!-- ADMIN PANEL -->
+<div id="adminPanel" style="display:none;">
+<header>
+  <div><h1>Admin — Flood Control</h1><div class="note">Review reports, add roads, and sync with users</div></div>
+  <div id="adminToolsTop" style="display:flex;align-items:center;gap:8px">
+    <span class="tag" id="pendingCountTop">Pending: 0</span>
+    <span id="syncStatus" class="badge">Live sync: ON</span>
+    <button id="reloadBtn" class="smallBtn">Reload</button>
+    <button id="syncBtn" class="smallBtn">Sync Now</button>
+    <button id="logoutBtn" class="smallBtn" style="background:#b91c1c">Logout</button>
+  </div>
+</header>
+
+<main>
+  <div id="left">
+    <div class="panel">
+      <div class="sectionTitle">Pending Reports</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <input id="searchBox" class="input" placeholder="Search notes/date">
+        <select id="bulkSeverity" class="input" style="max-width:130px">
+          <option>Moderate</option>
+          <option>Low</option>
+          <option>High</option>
+        </select>
+        <button id="bulkApproveBtn" class="btn">Approve Selected</button>
+      </div>
+      <div class="tableBox">
+        <table id="reportsTable">
+          <thead><tr><th style="width:18px"></th><th>Note / Time</th><th style="width:240px">Severity & Actions</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="sectionTitle">Preview Map / Manual Add</div>
+      <div id="map"></div>
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+        <button id="startDrawBtn" class="smallBtn">Start Draw</button>
+        <button id="drawUndoBtn" class="smallBtn">Undo</button>
+        <button id="drawRedoBtn" class="smallBtn">Redo</button>
+        <select id="drawSeverity" class="input" style="max-width:140px">
+          <option>Moderate</option>
+          <option>Low</option>
+          <option>High</option>
+        </select>
+        <button id="finishDrawBtn" class="btn">Finish</button>
+        <button id="cancelDrawBtn" class="smallBtn" style="background:#b91c1c">Cancel</button>
+      </div>
+      <div class="note">Click "Start Draw", then click on map to add points. Use Undo/Redo. Finish to save road.</div>
+    </div>
+  </div>
+
+  <div id="right">
+    <div class="panel">
+      <div class="sectionTitle">Approved Flooded Roads</div>
+      <div id="roadsList" class="tableBox" style="max-height:200px"></div>
+    </div>
+
+    <div class="panel">
+      <div class="sectionTitle">Settings</div>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <input id="togglePendingUser" type="checkbox">
+        <span>Show pending reports on user map</span>
+      </label>
+    </div>
+
+    <div class="panel">
+      <div class="sectionTitle">Import / Export</div>
+      <textarea id="importArea" class="input" placeholder='Paste JSON (roads or reports)'></textarea>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button id="importBtn" class="btn">Import</button>
+        <button id="exportRoadsBtn" class="smallBtn">Export Roads</button>
+        <button id="exportReportsBtn" class="smallBtn">Export Reports</button>
+        <button id="clearDBBtn" class="smallBtn" style="background:#b91c1c">Clear All</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="sectionTitle">Activity</div>
+      <div id="activityList" class="tableBox" style="max-height:180px"></div>
+    </div>
+  </div>
+</main>
+</div>
+
+<script>
+/* ------------------- STORAGE & UTILS ------------------- */
+function lsGet(k,d){try{return JSON.parse(localStorage.getItem(k))||d}catch(e){return d}}
+function lsSet(k,v){localStorage.setItem(k,JSON.stringify(v))}
+function genId(){return 'id'+Math.random().toString(36).slice(2,9)}
+function nowStr(ts){return new Date(ts).toLocaleString()}
+
+/* ------------------- DATA ------------------- */
+function getRoads(){return lsGet('roads',[])}
+function setRoads(a){lsSet('roads',a)}
+function getReports(){return lsGet('reports',[])}
+function setReports(a){lsSet('reports',a)}
+function getMeta(){return lsGet('meta',{showPendingOnUser:true,activity:[]})}
+function setMeta(m){lsSet('meta',m)}
+function addActivity(txt){const m=getMeta();m.activity.unshift({time:Date.now(),text:txt});m.activity=m.activity.slice(0,300);setMeta(m);renderActivity()}
+
+/* ------------------- LOGIN ------------------- */
+const ADMIN_ID='admin',ADMIN_PASS='admin'
+document.getElementById('loginBtn').onclick=function(){
+  const id=document.getElementById('adminId').value.trim(),pw=document.getElementById('adminPass').value
+  if(id===ADMIN_ID&&pw===ADMIN_PASS){sessionStorage.setItem('adminLogged','1');showAdmin()}
+  else alert('Invalid credentials')
+}
+document.getElementById('logoutBtn').onclick=function(){sessionStorage.removeItem('adminLogged');location.reload()}
+function showAdmin(){document.getElementById('loginPanel').style.display='none';document.getElementById('adminPanel').style.display='block';renderAll()}
+
+/* ------------------- MAP ------------------- */
+const map = L.map('map').setView([8.5241,76.9366],13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+let previewLayer=null, approvedLayers={}
+
+function clearApprovedLayers(){Object.values(approvedLayers).forEach(l=>map.removeLayer(l));approvedLayers={}}
+function renderApprovedOnMap(){clearApprovedLayers();getRoads().forEach(r=>{const l=L.polyline(r.coords,{color: 'var(--danger)',weight:5,dashArray:'8,8'}).addTo(map);l.bindPopup(`Flooded (verified)${r.severity?' — '+r.severity:''}`);approvedLayers[r.id]=l})}
+
+/* ------------------- PENDING TABLE ------------------- */
+function renderPendingTable(){
+  const reps=getReports(),search=(document.getElementById('searchBox').value||'').toLowerCase()
+  const pending=reps.filter(r=>(r.status==='pending'||!r.status)&&((r.text||'').toLowerCase().includes(search)||nowStr(r.time).toLowerCase().includes(search))).sort((a,b)=>b.time-a.time)
+  const tbody=document.querySelector('#reportsTable tbody');tbody.innerHTML=''
+  pending.forEach(r=>{
+    const tr=document.createElement('tr')
+    const tdChk=document.createElement('td'),chk=document.createElement('input');chk.type='checkbox';chk.dataset.id=r.id;tdChk.appendChild(chk)
+    const tdNote=document.createElement('td');tdNote.innerHTML=`<div style="font-weight:700">${r.text||'<i>No note</i>'}</div><div style="color:var(--muted);font-size:12px">${nowStr(r.time)}</div>`
+    const tdAct=document.createElement('td')
+    const sev=document.createElement('select');sev.className='input';sev.style.maxWidth='120px';['Moderate','Low','High'].forEach(s=>{const o=document.createElement('option');o.value=s;o.text=s;if((r.severity||'Moderate')===s)o.selected=true;sev.appendChild(o)})
+    const preview=document.createElement('button');preview.className='smallBtn';preview.innerText='Preview';preview.onclick=()=>{if(previewLayer)map.removeLayer(previewLayer);previewLayer=L.polyline(r.coords,{color:'var(--pending)',weight:6,dashArray:'6,6'}).addTo(map);map.fitBounds(previewLayer.getBounds(),{padding:[50,50]})}
+    const approve=document.createElement('button');approve.className='btn';approve.style.marginLeft='6px';approve.innerText='Approve'
+    approve.onclick=()=>{const roads=getRoads();roads.unshift({id:genId(),coords:r.coords,severity:sev.value});setRoads(roads);r.status='approved';r.severity=sev.value;updateReport(r);addActivity(`Approved report ${r.id} (${sev.value})`);renderAll()}
+    const reject=document.createElement('button');reject.className='smallBtn';reject.style.background='#b91c1c';reject.style.marginLeft='6px';reject.innerText='Reject'
+    reject.onclick=()=>{r.status='rejected';updateReport(r);addActivity(`Rejected report ${r.id}`);renderAll()}
+    tdAct.appendChild(sev);tdAct.appendChild(preview);tdAct.appendChild(approve);tdAct.appendChild(reject)
+    tr.appendChild(tdChk);tr.appendChild(tdNote);tr.appendChild(tdAct);tbody.appendChild(tr)
+  })
+  document.getElementById('pendingCountTop').innerText=`Pending: ${pending.length}`
+}
+function updateReport(r){const arr=getReports(),idx=arr.findIndex(x=>x.id===r.id);if(idx>=0){arr[idx]=r;setReports(arr)}}
+document.getElementById('bulkApproveBtn').onclick=function(){
+  const checks=Array.from(document.querySelectorAll('#reportsTable tbody input[type="checkbox"]')).filter(c=>c.checked)
+  if(!checks.length)return alert('Select reports')
+  const roads=getRoads(),reps=getReports(),sev=document.getElementById('bulkSeverity').value||'Moderate'
+  checks.forEach(c=>{const r=reps.find(x=>x.id===c.dataset.id);if(r&&(r.status==='pending'||!r.status)){roads.unshift({id:genId(),coords:r.coords,severity:sev});r.status='approved';r.severity=sev}})
+  setRoads(roads);setReports(reps);addActivity(`Bulk approved ${checks.length} reports (${sev})`);renderAll();alert('Bulk approved')
+}
+document.getElementById('searchBox').addEventListener('input',renderPendingTable)
+
+/* ------------------- ROADS LIST ------------------- */
+function renderRoadsList(){
+  const el=document.getElementById('roadsList');el.innerHTML='';const roads=getRoads()
+  if(!roads.length){el.innerHTML='<div class="note">No approved roads yet</div>';return}
+  roads.forEach(r=>{const row=document.createElement('div');row.style.padding='8px';row.style.borderBottom='1px solid rgba(255,255,255,0.06)'
+  row.innerHTML=`<div><b>Road</b> • ${r.coords.length} pts • ${r.severity||'Moderate'}</div>`;const act=document.createElement('div');act.style.marginTop='6px'
+  const btnPrev=document.createElement('button');btnPrev.className='smallBtn';btnPrev.innerText='Preview';btnPrev.onclick=()=>{if(previewLayer)map.removeLayer(previewLayer);previewLayer=L.polyline(r.coords,{color:'var(--danger)',weight:6,dashArray:'6,6'}).addTo(map);map.fitBounds(previewLayer.getBounds(),{padding:[50,50]})}
+  const btnDel=document.createElement('button');btnDel.className='smallBtn';btnDel.style.background='#b91c1c';btnDel.innerText='Remove';btnDel.onclick=()=>{if(!confirm('Remove this road?'))return;const rr=getRoads().filter(x=>x.id!==r.id);setRoads(rr);addActivity(`Removed road ${r.id}`);renderAll()}
+  act.appendChild(btnPrev);act.appendChild(btnDel);row.appendChild(act);el.appendChild(row)})
+}
+
+/* ------------------- SETTINGS ------------------- */
+function renderSettings(){const meta=getMeta();const cb=document.getElementById('togglePendingUser');cb.checked=!!meta.showPendingOnUser;cb.onchange=()=>{meta.showPendingOnUser=cb.checked;setMeta(meta);addActivity(`Set "show pending on user" = ${cb.checked}`)}}
+
+/* ------------------- ACTIVITY ------------------- */
+function renderActivity(){const a=getMeta().activity||[];const el=document.getElementById('activityList');el.innerHTML='';if(!a.length){el.innerHTML='<div class="note">No recent activity</div>';return}
+a.slice(0,200).forEach(it=>{const d=document.createElement('div');d.style.padding='6px';d.style.borderBottom='1px solid rgba(255,255,255,0.06)';d.innerHTML=`<div style="font-size:12px;color:var(--muted)">${nowStr(it.time)}</div><div>${it.text}</div>`;el.appendChild(d)})}
+
+/* ------------------- IMPORT/EXPORT ------------------- */
+document.getElementById('importBtn').onclick=function(){
+  const txt=document.getElementById('importArea').value.trim();if(!txt)return alert('Paste JSON first')
+  try{const arr=JSON.parse(txt);if(!Array.isArray(arr))return alert('JSON must be an array');let roads=getRoads(),reps=getReports()
+  arr.forEach(it=>{if(it.coords&&it.time===undefined){roads.unshift({id:genId(),coords:it.coords,severity:it.severity||'Moderate'})}else if(it.time!==undefined){reps.unshift({id:genId(),coords:it.coords||[],text:it.text||'',time:it.time,status:it.status||'pending',severity:it.severity||'Moderate'})}})
+  setRoads(roads);setReports(reps);addActivity('Imported JSON');renderAll();alert('Imported')}catch(e){alert('Import error: '+e.message)}}
+document.getElementById('exportRoadsBtn').onclick=function(){prompt('Copy JSON',JSON.stringify(getRoads(),null,2))}
+document.getElementById('exportReportsBtn').onclick=function(){prompt('Copy JSON',JSON.stringify(getReports(),null,2))}
+document.getElementById('clearDBBtn').onclick=function(){if(confirm('Clear ALL data?')){localStorage.clear();sessionStorage.clear();addActivity('Cleared all data');location.reload()}}
+
+/* ------------------- DRAW TOOL ------------------- */
+let drawing=false,drawPoints=[],undoStack=[],redoStack=[]
+function renderDrawPolyline(){if(previewLayer)map.removeLayer(previewLayer);if(drawPoints.length<1)return;previewLayer=L.polyline(drawPoints,{color:'var(--accent)',weight:5}).addTo(map)}
+document.getElementById('startDrawBtn').onclick=function(){drawing=true;drawPoints=[];undoStack=[];redoStack=[];alert('Click map to add points')}
+document.getElementById('drawUndoBtn').onclick=function(){if(!drawPoints.length)return;redoStack.push(drawPoints.pop());renderDrawPolyline()}
+document.getElementById('drawRedoBtn').onclick=function(){if(!redoStack.length)return;drawPoints.push(redoStack.pop());renderDrawPolyline()}
+document.getElementById('finishDrawBtn').onclick=function(){if(drawPoints.length<2)return alert('Add at least 2 points');const roads=getRoads();roads.unshift({id:genId(),coords:drawPoints,severity:document.getElementById('drawSeverity').value||'Moderate'});setRoads(roads);drawing=false;drawPoints=[];redoStack=[];addActivity('Added road manually');renderAll()}
+document.getElementById('cancelDrawBtn').onclick=function(){drawing=false;drawPoints=[];redoStack=[];if(previewLayer)map.removeLayer(previewLayer)}
+map.on('click',e=>{if(!drawing)return;drawPoints.push([e.latlng.lat,e.latlng.lng]);renderDrawPolyline()})
+
+/* ------------------- REFRESH & SYNC ------------------- */
+document.getElementById('reloadBtn').onclick=renderAll
+document.getElementById('syncBtn').onclick=function(){addActivity('Manual sync triggered');alert('Sync done')}
+function renderAll(){renderPendingTable();renderApprovedOnMap();renderRoadsList();renderSettings();renderActivity()}
+
+/* ------------------- INIT ------------------- */
+if(sessionStorage.getItem('adminLogged')==='1'){showAdmin()}
+</script>
+
+</body>
+</html>
