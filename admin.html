@@ -1,152 +1,371 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Admin Panel - Flood Alert System</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <style>
-    body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f4f4f4; }
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Admin — Flood Reports</title>
 
-    /* LOGIN PAGE */
-    .login-container {
-      display: flex; height: 100vh; justify-content: center; align-items: center; flex-direction: column;
-    }
-    .login-box {
-      background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-      text-align: center;
-    }
-    input { margin: 8px 0; padding: 8px; width: 200px; }
-    button { padding: 8px 12px; margin-top: 10px; cursor: pointer; }
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-    /* ORIGINAL ADMIN PANEL STYLES */
-    .login-container.hidden, .admin-container.hidden { display: none; }
-    .admin-panel { display: flex; width: 100%; height: 100vh; }
-    .sidebar { width: 220px; background: #2c3e50; color: white; padding: 20px; }
-    .sidebar h2 { font-size: 20px; margin-bottom: 20px; }
-    .sidebar button { width: 100%; margin: 5px 0; padding: 10px; border:none; background:#3498db; color:white; border-radius:5px; cursor:pointer; }
-    .main { flex:1; padding:20px; overflow:auto; }
-    .report-item { background:#fff; padding:10px; margin:10px 0; border-left:5px solid orange; border-radius:5px; }
-    .approved { border-left:5px solid green; }
-    .map { height:400px; border-radius:10px; margin-top:10px; }
-  </style>
+<style>
+:root{
+  --bg:#0b1220; --panel:#0f172a; --text:#e6eef6; --muted:#94a3b8;
+  --accent:#16a34a; --danger:#ef4444; --pending:#f59e0b;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,Segoe UI,Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column}
+header{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:space-between;background:#0a1627}
+h1{font-size:18px;margin:0}
+main{display:flex;gap:12px;padding:12px;height:calc(100vh - 56px)}
+.panel{background:var(--panel);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.45);padding:12px}
+#left{flex:2;display:flex;flex-direction:column;gap:12px}
+#right{flex:1.2;display:flex;flex-direction:column;gap:12px}
+.smallBtn{ padding:8px 10px;border-radius:8px;border:0;background:#071025;color:var(--text);cursor:pointer; margin-left:6px }
+.btn{ padding:10px; border-radius:8px; border:0; cursor:pointer; box-shadow:0 6px 18px rgba(0,0,0,0.35); background:var(--accent); color:#022; font-weight:700 }
+.input{ width:100%; padding:10px; border-radius:8px; border:0; background:#071025; color:var(--text) }
+.tableBox{ max-height:260px; overflow:auto; border-radius:8px; padding:6px; background:rgba(255,255,255,0.02) }
+table{ width:100%; border-collapse:collapse }
+th,td{ padding:8px; border-bottom:1px solid rgba(255,255,255,0.06); text-align:left; font-size:13px }
+th{ color:var(--muted); font-weight:700 }
+.tag{ display:inline-block;padding:4px 8px;border-radius:8px;background:#111827;color:var(--muted);font-size:12px;margin-right:6px }
+.sectionTitle{font-weight:700;margin:6px 0 8px 0}
+#map{height:300px;border-radius:10px}
+.note{font-size:12px;color:var(--muted)}
+#tools{display:flex;gap:8px;align-items:center}
+.badge{padding:6px 10px; background:#0c1a33; border-radius:8px; font-size:12px}
+</style>
 </head>
 <body>
+<header>
+  <div><h1>Admin — Flood Control</h1><div class="note">Review reports, add roads, and sync with users</div></div>
+  <div id="authArea">
+    <input id="adminId" class="input" style="width:140px;display:inline-block" placeholder="Admin ID (admin)">
+    <input id="adminPass" class="input" style="width:140px;display:inline-block" type="password" placeholder="Password (admin)">
+    <button id="loginBtn" class="btn">Login</button>
+  </div>
+  <div id="adminToolsTop" style="display:none;align-items:center;gap:8px">
+    <span class="tag" id="pendingCountTop">Pending: 0</span>
+    <span id="syncStatus" class="badge">Live sync: ON</span>
+    <button id="reloadBtn" class="smallBtn">Reload</button>
+    <button id="syncBtn" class="smallBtn">Sync Now</button>
+    <button id="logoutBtn" class="smallBtn" style="background:#b91c1c">Logout</button>
+  </div>
+</header>
 
-  <!-- LOGIN PAGE -->
-  <div class="login-container" id="loginPage">
-    <div class="login-box">
-      <h2>Admin Login</h2>
-      <input type="text" id="adminId" placeholder="Admin ID"><br>
-      <input type="password" id="adminPass" placeholder="Password"><br>
-      <button onclick="loginAdmin()">Login</button>
-      <p id="loginError" style="color:red; display:none;">Invalid ID or Password</p>
+<main>
+  <div id="left">
+    <div class="panel">
+      <div class="sectionTitle">Pending Reports</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <input id="searchBox" class="input" placeholder="Search notes/date">
+        <select id="bulkSeverity" class="input" style="max-width:130px">
+          <option>Moderate</option>
+          <option>Low</option>
+          <option>High</option>
+        </select>
+        <button id="bulkApproveBtn" class="btn">Approve Selected</button>
+      </div>
+      <div class="tableBox">
+        <table id="reportsTable">
+          <thead><tr><th style="width:18px"></th><th>Note / Time</th><th style="width:240px">Severity & Actions</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="sectionTitle">Preview Map / Manual Add</div>
+      <div id="map"></div>
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+        <button id="startDrawBtn" class="smallBtn">Start Draw</button>
+        <button id="drawUndoBtn" class="smallBtn">Undo</button>
+        <button id="drawRedoBtn" class="smallBtn">Redo</button>
+        <select id="drawSeverity" class="input" style="max-width:140px">
+          <option>Moderate</option>
+          <option>Low</option>
+          <option>High</option>
+        </select>
+        <button id="finishDrawBtn" class="btn">Finish</button>
+        <button id="cancelDrawBtn" class="smallBtn" style="background:#b91c1c">Cancel</button>
+      </div>
+      <div class="note">Click "Start Draw", then click on map to add points. Use Undo/Redo. Finish to save road.</div>
     </div>
   </div>
 
-  <!-- EXISTING ADMIN PANEL CODE (UNCHANGED, JUST WRAPPED INSIDE adminMainPage) -->
-  <div class="admin-container hidden" id="adminMainPage">
-    <div class="admin-panel">
-      <div class="sidebar">
-        <h2>Admin Panel</h2>
-        <button onclick="showReports()">Pending Reports</button>
-        <button onclick="showApproved()">Approved Floods</button>
-        <button onclick="showMap()">Map View</button>
-        <button onclick="logout()">Logout</button>
-      </div>
-      <div class="main" id="adminContent">
-        <h2>Welcome Admin</h2>
-        <p>Select an option from sidebar.</p>
+  <div id="right">
+    <div class="panel">
+      <div class="sectionTitle">Approved Flooded Roads</div>
+      <div id="roadsList" class="tableBox" style="max-height:200px"></div>
+    </div>
+
+    <div class="panel">
+      <div class="sectionTitle">Settings</div>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <input id="togglePendingUser" type="checkbox">
+        <span>Show pending reports on user map</span>
+      </label>
+    </div>
+
+    <div class="panel">
+      <div class="sectionTitle">Import / Export</div>
+      <textarea id="importArea" class="input" placeholder='Paste JSON (roads or reports)'></textarea>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button id="importBtn" class="btn">Import</button>
+        <button id="exportRoadsBtn" class="smallBtn">Export Roads</button>
+        <button id="exportReportsBtn" class="smallBtn">Export Reports</button>
+        <button id="clearDBBtn" class="smallBtn" style="background:#b91c1c">Clear All</button>
       </div>
     </div>
+
+    <div class="panel">
+      <div class="sectionTitle">Activity</div>
+      <div id="activityList" class="tableBox" style="max-height:180px"></div>
+    </div>
   </div>
+</main>
 
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <script>
-    // LOCAL STORAGE DATA
-    let reports = JSON.parse(localStorage.getItem("floodReports")) || [];
+<script>
+/* ========== BROADCAST SYNC ========== */
+const bc = new BroadcastChannel('flood-sync');
+function bcSend(msg){ try{ bc.postMessage(msg);}catch(e){} }
+bc.onmessage = (e)=>{ const m=e.data||{}; if(m.type==='db-changed'){ renderAll(); setBadge('Live sync: Update received'); } };
+function setBadge(text){ const b=document.getElementById('syncStatus'); b.innerText=text; setTimeout(()=>b.innerText='Live sync: ON', 1500); }
 
-    // LOGIN FUNCTION
-    function loginAdmin() {
-      let id = document.getElementById("adminId").value;
-      let pass = document.getElementById("adminPass").value;
+/* ========== LOCAL STORAGE HELPERS ========== */
+function lsGet(k, def){ try{ const v=localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch(e){ return def; } }
+function lsSet(k, v){ localStorage.setItem(k, JSON.stringify(v)); }
+function genId(){ return 'id'+Math.random().toString(36).slice(2,9); }
+function nowStr(ts){ return new Date(ts).toLocaleString(); }
 
-      if (id === "admin" && pass === "admin") {
-        document.getElementById("loginPage").classList.add("hidden");
-        document.getElementById("adminMainPage").classList.remove("hidden");
-      } else {
-        document.getElementById("loginError").style.display = "block";
-      }
+/* ========== DATA ========== */
+function getRoads(){ return lsGet('roads', []); }        // approved flooded roads [{id,coords,severity}]
+function setRoads(arr){ lsSet('roads', arr); }
+function getReports(){ return lsGet('reports', []); }     // reports [{id,coords,text,time,status,severity}]
+function setReports(arr){ lsSet('reports', arr); }
+function getMeta(){ return lsGet('meta', { showPendingOnUser:true, activity:[] }); }
+function setMeta(m){ lsSet('meta', m); }
+
+function addActivity(text){
+  const meta = getMeta();
+  meta.activity = meta.activity || [];
+  meta.activity.unshift({time:Date.now(), text});
+  meta.activity = meta.activity.slice(0,300);
+  setMeta(meta);
+  renderActivity();
+}
+
+/* ========== AUTH ========== */
+const ADMIN_ID='admin', ADMIN_PASS='admin';
+function isLogged(){ return sessionStorage.getItem('adminLogged')==='1'; }
+function login(){ sessionStorage.setItem('adminLogged','1'); }
+function logout(){ sessionStorage.removeItem('adminLogged'); }
+
+/* ========== UI ELEMENTS ========== */
+const authArea = document.getElementById('authArea');
+const toolsTop = document.getElementById('adminToolsTop');
+document.getElementById('loginBtn').addEventListener('click', ()=>{
+  const id = document.getElementById('adminId').value.trim();
+  const pw = document.getElementById('adminPass').value;
+  if(id===ADMIN_ID && pw===ADMIN_PASS){
+    login(); onLogin();
+    addActivity('Admin logged in');
+  } else alert('Invalid credentials');
+});
+document.getElementById('logoutBtn').addEventListener('click', ()=>{ logout(); location.reload(); });
+
+document.getElementById('reloadBtn').addEventListener('click', ()=>{ renderAll(); setBadge('Reloaded'); });
+document.getElementById('syncBtn').addEventListener('click', ()=>{ bcSend({type:'db-changed'}); setBadge('Synced'); });
+
+function onLogin(){
+  authArea.style.display='none';
+  toolsTop.style.display='flex';
+  renderAll();
+}
+
+/* ========== MAP ========== */
+const map = L.map('map').setView([8.5241,76.9366],13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+let previewLayer=null, approvedLayers={};
+
+function clearApprovedLayers(){ Object.values(approvedLayers).forEach(l=>{ try{ map.removeLayer(l);}catch(e){} }); approvedLayers={}; }
+function renderApprovedOnMap(){
+  clearApprovedLayers();
+  getRoads().forEach(r=>{
+    const l = L.polyline(r.coords, { color:'var(--danger)', weight:5, dashArray:'8,8' }).addTo(map);
+    l.bindPopup(`Flooded (verified)${r.severity ? ' — '+r.severity : ''}`);
+    approvedLayers[r.id]=l;
+  });
+}
+
+/* ========== PENDING TABLE ========== */
+function renderPendingTable(){
+  const reps = getReports();
+  const search = (document.getElementById('searchBox').value||'').toLowerCase();
+  const pending = reps.filter(r => (r.status==='pending' || !r.status) && ((r.text||'').toLowerCase().includes(search) || nowStr(r.time).toLowerCase().includes(search)))
+                      .sort((a,b)=>b.time - a.time);
+  const tbody = document.querySelector('#reportsTable tbody'); tbody.innerHTML='';
+  pending.forEach(r=>{
+    const tr = document.createElement('tr');
+    const tdChk = document.createElement('td'); const chk = document.createElement('input'); chk.type='checkbox'; chk.dataset.id=r.id; tdChk.appendChild(chk);
+    const tdNote = document.createElement('td'); tdNote.innerHTML = `<div style="font-weight:700">${r.text||'<i>No note</i>'}</div><div style="color:var(--muted);font-size:12px">${nowStr(r.time)}</div>`;
+    const tdAct = document.createElement('td');
+
+    // severity picker
+    const sev = document.createElement('select'); sev.className='input'; sev.style.maxWidth='120px';
+    ['Moderate','Low','High'].forEach(s=>{ const o=document.createElement('option'); o.value=s; o.text=s; if((r.severity||'Moderate')===s) o.selected=true; sev.appendChild(o); });
+
+    const preview = document.createElement('button'); preview.className='smallBtn'; preview.innerText='Preview';
+    preview.onclick = ()=>{ if(previewLayer) try{ map.removeLayer(previewLayer);}catch(e){} previewLayer = L.polyline(r.coords, { color:'var(--pending)', weight:6, dashArray:'6,6' }).addTo(map); map.fitBounds(previewLayer.getBounds(), { padding:[50,50] }); };
+    const approve = document.createElement('button'); approve.className='btn'; approve.style.marginLeft='6px'; approve.innerText='Approve';
+    approve.onclick = ()=>{ const roads = getRoads(); roads.unshift({ id: genId(), coords: r.coords, severity: sev.value }); setRoads(roads); r.status='approved'; r.severity=sev.value; updateReport(r); addActivity(`Approved report ${r.id} (${sev.value})`); renderAll(); bcSend({type:'db-changed'}); };
+    const reject = document.createElement('button'); reject.className='smallBtn'; reject.style.background='#b91c1c'; reject.style.marginLeft='6px'; reject.innerText='Reject';
+    reject.onclick = ()=>{ r.status='rejected'; updateReport(r); addActivity(`Rejected report ${r.id}`); renderAll(); bcSend({type:'db-changed'}); };
+
+    tdAct.appendChild(sev);
+    tdAct.appendChild(preview);
+    tdAct.appendChild(approve);
+    tdAct.appendChild(reject);
+
+    tr.appendChild(tdChk); tr.appendChild(tdNote); tr.appendChild(tdAct);
+    tbody.appendChild(tr);
+  });
+  document.getElementById('pendingCountTop').innerText = `Pending: ${pending.length}`;
+}
+function updateReport(rep){
+  const arr = getReports();
+  const idx = arr.findIndex(x=>x.id===rep.id);
+  if(idx>=0){ arr[idx]=rep; setReports(arr); }
+}
+
+/* Bulk approve */
+document.getElementById('bulkApproveBtn').addEventListener('click', ()=>{
+  const checks = Array.from(document.querySelectorAll('#reportsTable tbody input[type="checkbox"]')).filter(c=>c.checked);
+  if(checks.length===0) return alert('Select reports');
+  if(!confirm(`Approve ${checks.length} reports?`)) return;
+  const roads = getRoads();
+  const reps = getReports();
+  const sev = document.getElementById('bulkSeverity').value || 'Moderate';
+  checks.forEach(c=>{
+    const r = reps.find(x=>x.id===c.dataset.id);
+    if(r && (r.status==='pending' || !r.status)){
+      roads.unshift({ id: genId(), coords: r.coords, severity: sev });
+      r.status='approved';
+      r.severity=sev;
     }
+  });
+  setRoads(roads);
+  setReports(reps);
+  addActivity(`Bulk approved ${checks.length} reports (${sev})`);
+  renderAll();
+  bcSend({type:'db-changed'});
+  alert('Bulk approved');
+});
 
-    function logout() {
-      document.getElementById("adminMainPage").classList.add("hidden");
-      document.getElementById("loginPage").classList.remove("hidden");
-    }
+document.getElementById('searchBox').addEventListener('input', renderPendingTable);
 
-    function showReports() {
-      let content = "<h2>Pending Flood Reports</h2>";
-      let pending = reports.filter(r => !r.approved);
-      if (pending.length === 0) {
-        content += "<p>No pending reports.</p>";
-      } else {
-        pending.forEach((r, i) => {
-          content += `<div class="report-item">
-                        <p><b>Location:</b> ${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}</p>
-                        <p><i>Reported by user</i></p>
-                        <button onclick="approveReport(${i})">Approve</button>
-                        <button onclick="deleteReport(${i})">Delete</button>
-                      </div>`;
-        });
-      }
-      document.getElementById("adminContent").innerHTML = content;
-    }
+/* ========== Right side lists & settings ========== */
+function renderRoadsList(){
+  const el = document.getElementById('roadsList'); el.innerHTML='';
+  const roads = getRoads();
+  if(roads.length===0){ el.innerHTML='<div class="note">No approved roads yet</div>'; return; }
+  roads.forEach(r=>{
+    const row = document.createElement('div');
+    row.style.padding='8px'; row.style.borderBottom='1px solid rgba(255,255,255,0.06)';
+    row.innerHTML = `<div><b>Road</b> • ${r.coords.length} pts • ${r.severity||'Moderate'}</div>`;
+    const act = document.createElement('div'); act.style.marginTop='6px';
+    const btnPrev = document.createElement('button'); btnPrev.className='smallBtn'; btnPrev.innerText='Preview';
+    btnPrev.onclick = ()=>{ if(previewLayer) try{ map.removeLayer(previewLayer);}catch(e){} previewLayer = L.polyline(r.coords, { color:'var(--danger)', weight:6, dashArray:'6,6' }).addTo(map); map.fitBounds(previewLayer.getBounds(), { padding:[50,50] }); };
+    const btnDel = document.createElement('button'); btnDel.className='smallBtn'; btnDel.style.background='#b91c1c'; btnDel.innerText='Remove';
+    btnDel.onclick = ()=>{ if(!confirm('Remove this road?')) return; const rr = getRoads().filter(x=>x.id!==r.id); setRoads(rr); addActivity(`Removed road ${r.id}`); renderAll(); bcSend({type:'db-changed'}); };
+    act.appendChild(btnPrev); act.appendChild(btnDel);
+    row.appendChild(act);
+    el.appendChild(row);
+  });
+}
 
-    function showApproved() {
-      let content = "<h2>Approved Floods</h2>";
-      let approved = reports.filter(r => r.approved);
-      if (approved.length === 0) {
-        content += "<p>No approved floods.</p>";
-      } else {
-        approved.forEach(r => {
-          content += `<div class="report-item approved">
-                        <p><b>Location:</b> ${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}</p>
-                        <p><i>Approved Flood</i></p>
-                      </div>`;
-        });
-      }
-      document.getElementById("adminContent").innerHTML = content;
-    }
+function renderSettings(){
+  const meta = getMeta();
+  const cb = document.getElementById('togglePendingUser');
+  cb.checked = !!meta.showPendingOnUser;
+  cb.onchange = ()=>{ meta.showPendingOnUser = cb.checked; setMeta(meta); addActivity(`Set "show pending on user" = ${cb.checked}`); bcSend({type:'db-changed'}); };
+}
 
-    function showMap() {
-      document.getElementById("adminContent").innerHTML = `<h2>Flood Map</h2><div id="map" class="map"></div>`;
-      let map = L.map('map').setView([8.5241, 76.9366], 12);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors'
-      }).addTo(map);
+function renderActivity(){
+  const a = getMeta().activity || [];
+  const el = document.getElementById('activityList'); el.innerHTML='';
+  if(a.length===0){ el.innerHTML='<div class="note">No recent activity</div>'; return; }
+  a.slice(0,200).forEach(it=>{
+    const d = document.createElement('div');
+    d.style.padding='6px'; d.style.borderBottom='1px solid rgba(255,255,255,0.06)';
+    d.innerHTML = `<div style="font-size:12px;color:var(--muted)">${nowStr(it.time)}</div><div>${it.text}</div>`;
+    el.appendChild(d);
+  });
+}
 
-      reports.forEach(r => {
-        let color = r.approved ? "red" : "orange";
-        L.circleMarker([r.lat, r.lng], { color, radius: 8 }).addTo(map)
-          .bindPopup(r.approved ? "Approved Flood" : "User Report (Pending)");
-      });
-    }
+/* ========== Import/Export/Clear ========== */
+document.getElementById('importBtn').addEventListener('click', ()=>{
+  const txt = document.getElementById('importArea').value.trim();
+  if(!txt) return alert('Paste JSON first');
+  try{
+    const arr = JSON.parse(txt);
+    if(!Array.isArray(arr)) return alert('JSON must be an array');
+    let roads = getRoads(), reps = getReports();
+    arr.forEach(it=>{
+      if(it.coords && it.time===undefined){ roads.unshift({ id: genId(), coords: it.coords, severity: it.severity||'Moderate' }); }
+      else if(it.time!==undefined){ reps.unshift({ id: genId(), coords: it.coords||[], text: it.text||'', time: it.time, status: it.status||'pending', severity: it.severity||'Moderate' }); }
+    });
+    setRoads(roads); setReports(reps);
+    addActivity('Imported JSON');
+    renderAll();
+    bcSend({type:'db-changed'});
+    alert('Imported');
+  }catch(e){ alert('Import error: '+e.message); }
+});
+document.getElementById('exportRoadsBtn').addEventListener('click', ()=>{ const t = JSON.stringify(getRoads(), null, 2); document.getElementById('importArea').value=t; alert('Exported roads'); });
+document.getElementById('exportReportsBtn').addEventListener('click', ()=>{ const t = JSON.stringify(getReports(), null, 2); document.getElementById('importArea').value=t; alert('Exported reports'); });
+document.getElementById('clearDBBtn').addEventListener('click', ()=>{ if(!confirm('Clear all roads & reports?')) return; setRoads([]); setReports([]); addActivity('Cleared DB'); renderAll(); bcSend({type:'db-changed'}); alert('Cleared'); });
 
-    function approveReport(index) {
-      let pending = reports.filter(r => !r.approved);
-      let report = pending[index];
-      let originalIndex = reports.findIndex(r => r.lat === report.lat && r.lng === report.lng);
-      reports[originalIndex].approved = true;
-      localStorage.setItem("floodReports", JSON.stringify(reports));
-      showReports();
-    }
+/* ========== Manual Draw on Admin Map ========== */
+let drawMode=false, drawPts=[], drawRedo=[], drawPreview=null;
+document.getElementById('startDrawBtn').addEventListener('click', ()=>{ drawMode=true; drawPts=[]; drawRedo=[]; redrawDrawPreview(); alert('Draw mode ON: click on the map to add points.'); });
+document.getElementById('drawUndoBtn').addEventListener('click', ()=>{ if(!drawMode || drawPts.length===0) return; drawRedo.push(drawPts.pop()); redrawDrawPreview(); });
+document.getElementById('drawRedoBtn').addEventListener('click', ()=>{ if(!drawMode || drawRedo.length===0) return; drawPts.push(drawRedo.pop()); redrawDrawPreview(); });
+document.getElementById('cancelDrawBtn').addEventListener('click', ()=>{ endDraw(true); });
+document.getElementById('finishDrawBtn').addEventListener('click', ()=>{
+  if(!drawMode) return;
+  if(drawPts.length<2) return alert('Add at least 2 points');
+  const sev = document.getElementById('drawSeverity').value || 'Moderate';
+  const roads=getRoads(); roads.unshift({id:genId(), coords:drawPts.slice(), severity:sev}); setRoads(roads);
+  addActivity(`Admin added road manually (${sev})`);
+  endDraw(false);
+  renderAll(); bcSend({type:'db-changed'}); alert('Road added');
+});
+map.on('click', (e)=>{ if(drawMode){ drawPts.push([e.latlng.lat, e.latlng.lng]); drawRedo=[]; redrawDrawPreview(); } });
+function redrawDrawPreview(){
+  if(drawPreview) try{ map.removeLayer(drawPreview);}catch(e){}
+  if(drawPts.length>0) drawPreview = L.polyline(drawPts, { color:'#22c55e', weight:5, dashArray:'6,6' }).addTo(map);
+}
+function endDraw(cancel){
+  drawMode=false; drawPts=[]; drawRedo=[];
+  if(drawPreview) try{ map.removeLayer(drawPreview);}catch(e){}
+  drawPreview=null;
+  if(cancel) alert('Draw cancelled');
+}
 
-    function deleteReport(index) {
-      let pending = reports.filter(r => !r.approved);
-      let report = pending[index];
-      reports = reports.filter(r => !(r.lat === report.lat && r.lng === report.lng));
-      localStorage.setItem("floodReports", JSON.stringify(reports));
-      showReports();
-    }
-  </script>
+/* ========== Render All ========== */
+function renderAll(){
+  renderPendingTable();
+  renderApprovedOnMap();
+  renderRoadsList();
+  renderSettings();
+  renderActivity();
+}
+
+/* ========== INIT ========== */
+(function init(){
+  if(isLogged()){ onLogin(); } 
+})();
+</script>
 </body>
 </html>
